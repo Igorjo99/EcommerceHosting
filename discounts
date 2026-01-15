@@ -1,0 +1,129 @@
+function checkPromoCode() {
+    // console.log('Checked');
+    $.ajax({
+        url: "/ajx/ajxCheckPromoCode.php", // no need to send data via URL
+        method: "POST",
+        data: {
+            // ProductID: productId,
+            // IsLoggedIn: isLoggedIn,
+            totalPrice: <?= $dProizvodiMedjuzbir ?>,
+            // ProductType: 1
+            promoCode: document.getElementById('txtPromoCode').value
+        },
+        success: function (response) {
+
+            const data = JSON.parse(response);
+
+            if (data.status === false) {
+                document.getElementById('discountMessageError').classList.remove('d-none');
+                document.getElementById('discountMessageSuccess').classList.add('d-none');
+            }
+
+            if (data.status === true) {
+                document.getElementById('discountMessageError').classList.add('d-none');
+                document.getElementById('discountMessageSuccess').classList.remove('d-none');
+
+                document.getElementById('strongPriceWithPromoCode').innerHTML =
+                    `${data.price} <small>USD</small>`;
+
+                const totalPriceSpan = document.getElementById('spanTotalPrice');
+
+                // 1️ Wrap old price only if it is not already wrapped
+                if (!totalPriceSpan.querySelector('.old-price')) {
+                    totalPriceSpan.childNodes.forEach(node => {
+                        if (
+                            node.nodeType === Node.TEXT_NODE &&
+                            node.textContent.trim() !== ''
+                        ) {
+                            const oldPriceSpan = document.createElement('span');
+                            oldPriceSpan.className = 'old-price';
+                            oldPriceSpan.textContent = node.textContent.trim();
+                            oldPriceSpan.style.textDecoration = 'line-through';
+                            totalPriceSpan.replaceChild(oldPriceSpan, node);
+                        }
+                    });
+                }
+
+                // 2️ New price – update or create
+                let newPrice = totalPriceSpan.querySelector('.new-price');
+
+                if (!newPrice) {
+                    newPrice = document.createElement('div');
+                    newPrice.className = 'new-price';
+                    totalPriceSpan.appendChild(newPrice);
+                }
+
+                newPrice.innerHTML = `${data.price} <small>USD</small>`;
+
+                document.getElementById('strongDiscountPercent').innerHTML =
+                    `${data.discount}%`;
+
+                document.getElementById('txtTotalPrice').value = data.price;
+            }
+
+            console.log("Data received:", data);
+        },
+        error: function (xhr, status, error) {
+            console.error("AJAX error:", error);
+        }
+    });
+}
+
+// this is backend /ajx/ajxCheckPromoCode.php
+
+<?php
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+require_once('../engine/system/sql.php');
+require_once('../src/Modules/PromoCode/class/PromoCode.class.php');
+require_once 'whmcsCredentials.php';
+
+// session_start();
+// print_r($_SESSION); exit;
+
+// echo $_POST['promoCode']; exit;
+// print_r($_POST); exit;
+
+$promoCodeModel = new PromoCode($cSql);
+
+// Build WHERE condition based on user group
+$whereCondition = $promoCodeModel->createWhereByGroup();
+$whereCondition .= " AND IsVisible = 1 AND CharTag1 = '" . $_POST['promoCode'] . "'";
+
+$promoCodeModel->setWhere($whereCondition);
+$promoCodeModel->query();
+
+$counter = 0;
+
+while ($promoCodeModel->fetch()) {
+    $counter++;
+    $promoCodeModel->populate();
+
+    $promoName = $promoCodeModel->getName();
+    $discountPercent = $promoCodeModel->getDoubleTag1();
+    // $description = $promoCodeModel->getTextTag1();
+
+    $discountedPrice = number_format(
+        $_POST['totalPrice'] - ($_POST['totalPrice'] / 100 * $discountPercent),
+        0,
+        '',
+        '.'
+    );
+
+    echo json_encode([
+        'status'   => true,
+        'discount' => round($discountPercent),
+        'price'    => $discountedPrice
+    ]);
+
+    exit;
+}
+
+// Promo code not found or not valid
+echo json_encode([
+    'status' => false
+]);
+
